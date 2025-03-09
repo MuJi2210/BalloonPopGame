@@ -1,0 +1,320 @@
+import pygame
+import random
+import math
+
+pygame.init()
+
+WIDTH, HEIGHT = 800, 800
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+LIGHT_BLUE = (173, 216, 230)  # Soft blue for the welcome screen
+FONT_SMALL = pygame.font.SysFont("Comic Sans MS", 40, bold=True)
+FONT_LARGE = pygame.font.SysFont("Comic Sans MS", 60, bold=True)
+FONT_XLARGE = pygame.font.SysFont("Comic Sans MS", 100, bold=True)
+
+sky_image = pygame.image.load('sky_background.jpg')
+sky_image = pygame.transform.scale(sky_image, (WIDTH, HEIGHT))
+
+# Add a custom welcome background image
+welcome_background = pygame.image.load('welcome_background.jpg')  # Load your own welcome background
+welcome_background = pygame.transform.scale(welcome_background, (WIDTH, HEIGHT))
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Balloon Pop")
+
+BALLOON_COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 165, 0), (75, 0, 130)]
+
+balloons = []
+balloon_count = 1000
+
+bombs = []  # List to store bomb objects
+
+for i in range(balloon_count):
+    size = random.randint(40, 70)
+    x = random.randint(0, WIDTH - size)
+    y = HEIGHT + 50 * i
+    color = random.choice(BALLOON_COLORS)
+    balloons.append({"rect": pygame.Rect(x, y, size, int(size * 1.2)), "color": color, "speed": random.randint(3, 7)})
+
+# Function to draw text
+def draw_text(text, font, color, x, y, outline_color=None, shadow=False, center=False):
+    text_surface = font.render(text, True, color)
+    text_rect = text_surface.get_rect()
+    if center:
+        text_rect.center = (x, y)
+    else:
+        text_rect.topleft = (x, y)
+    
+    if outline_color:
+        outline_offset = 2
+        for dx, dy in [(-outline_offset, 0), (outline_offset, 0), (0, -outline_offset), (0, outline_offset)]:
+            screen.blit(font.render(text, True, outline_color), text_rect.move(dx, dy))
+    if shadow:
+        screen.blit(font.render(text, True, (50, 50, 50)), text_rect.move(3, 3))
+    screen.blit(text_surface, text_rect)
+
+# Function to draw balloon string (rope)
+def draw_balloon_string(balloon):
+    start_x, start_y = balloon["rect"].centerx, balloon["rect"].bottom
+    points = []
+    for i in range(20):
+        x_offset = 10 * math.sin(i * 0.3 * math.pi)
+        points.append((start_x + x_offset, start_y + i * 5))
+    pygame.draw.lines(screen, BLACK, False, points, 2)
+
+# Function to draw balloon
+def draw_balloon(balloon):
+    rect = balloon["rect"]
+    color = balloon["color"]
+    pygame.draw.ellipse(screen, color, rect)
+    
+    highlight_color = (min(color[0] + 100, 255), min(color[1] + 100, 255), min(color[2] + 100, 255))
+    highlight_rect = pygame.Rect(rect.x + rect.width // 4, rect.y + rect.height // 6, rect.width // 3, rect.height // 3)
+    pygame.draw.ellipse(screen, highlight_color, highlight_rect)
+
+# Function to create a pop effect (particles that scatter when a balloon is popped)
+def pop_effect(x, y):
+    particles = []
+    for _ in range(15):
+        particle_x = x + random.randint(-15, 15)
+        particle_y = y + random.randint(-15, 15)
+        velocity = [random.uniform(-2, 2), random.uniform(-2, 2)]
+        lifetime = random.randint(20, 40)
+        particles.append({"pos": [particle_x, particle_y], "velocity": velocity, "color": random.choice(BALLOON_COLORS), "lifetime": lifetime})
+    
+    for particle in particles:
+        pygame.draw.circle(screen, particle["color"], (int(particle["pos"][0]), int(particle["pos"][1])), random.randint(2, 5))
+        particle["pos"][0] += particle["velocity"][0]
+        particle["pos"][1] += particle["velocity"][1]
+        particle["lifetime"] -= 1
+
+# Function to draw bombs
+def draw_bombs():
+    for bomb in bombs:
+        if not bomb["exploded"]:  # Only draw bombs that haven't exploded
+            pygame.draw.circle(screen, (0, 0, 0), (bomb["x"], bomb["y"]), 30)  # Black bomb
+
+# Function to trigger explosion effect
+def explosion_effect(x, y):
+    particles = []
+    for _ in range(30):
+        particle_x = x + random.randint(-15, 15)
+        particle_y = y + random.randint(-15, 15)
+        velocity = [random.uniform(-3, 3), random.uniform(-3, 3)]
+        lifetime = random.randint(20, 40)
+        particles.append({"pos": [particle_x, particle_y], "velocity": velocity, "color": random.choice(BALLOON_COLORS), "lifetime": lifetime})
+    
+    for particle in particles:
+        pygame.draw.circle(screen, particle["color"], (int(particle["pos"][0]), int(particle["pos"][1])), random.randint(2, 5))
+        particle["pos"][0] += particle["velocity"][0]
+        particle["pos"][1] += particle["velocity"][1]
+        particle["lifetime"] -= 1
+
+# Function to handle bomb explosion and end the game
+def handle_bomb_explosion(bomb):
+    global balloons, score, game_over, bombs
+    bomb["exploded"] = True  # Mark the bomb as exploded
+    
+    # Create an explosion effect
+    explosion_effect(bomb["x"], bomb["y"])
+    
+    # Remove balloons in the explosion radius
+    for balloon in balloons[:]:
+        if balloon["rect"].colliderect(pygame.Rect(bomb["x"] - 50, bomb["y"] - 50, 100, 100)):  # Explosion radius of 100
+            balloons.remove(balloon)
+    
+    # Set the game over state
+    game_over = True  # End the game when a bomb is clicked
+    draw_text("Game Over!", FONT_LARGE, RED, WIDTH // 2, HEIGHT // 2 - 80, outline_color=BLACK, center=True)
+    draw_text(f"Final Score: {score}", FONT_LARGE, WHITE, WIDTH // 2, HEIGHT // 2, outline_color=BLACK, center=True)
+    pygame.display.flip()
+    pygame.time.delay(1000)  # Pause for a second to show the game over message
+
+# Main game loop
+def game_loop():
+    global balloons, score, game_over, bombs
+    score = 0
+    game_over = False
+
+    # Set up the game timer
+    start_ticks = pygame.time.get_ticks()
+    time_limit = 30000
+
+    # Generate balloons
+    for i in range(balloon_count):
+        size = random.randint(40, 70)
+        x = random.randint(0, WIDTH - size)
+        y = HEIGHT + 50 * i
+        color = random.choice(BALLOON_COLORS)
+        balloons.append({"rect": pygame.Rect(x, y, size, int(size * 1.2)), "color": color, "speed": random.randint(3, 7)})
+
+    # Generate bombs (somewhere random on the screen)
+    for _ in range(3):  # Let's add 3 bombs for now
+        bomb_x = random.randint(100, WIDTH - 100)
+        bomb_y = random.randint(100, HEIGHT - 100)
+        bombs.append({"x": bomb_x, "y": bomb_y, "exploded": False})
+
+    while True:
+        screen.blit(sky_image, (0, 0))
+        elapsed_time = pygame.time.get_ticks() - start_ticks
+        time_left = max(0, (time_limit - elapsed_time) // 1000)
+
+        draw_text(f"Time: {time_left}s", FONT_SMALL, WHITE, WIDTH - 200, 30, outline_color=BLACK)
+        draw_text(f"Score: {score}", FONT_SMALL, WHITE, 30, 30, outline_color=BLACK)
+
+        if game_over:
+            draw_text("Game Over!", FONT_LARGE, RED, WIDTH // 2, HEIGHT // 2 - 80, outline_color=BLACK, center=True)
+            draw_text(f"Final Score: {score}", FONT_LARGE, WHITE, WIDTH // 2, HEIGHT // 2, outline_color=BLACK, center=True)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False  # End the game
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if not game_over:
+                    for balloon in balloons[:]:
+                        if balloon["rect"].collidepoint(event.pos):
+                            balloons.remove(balloon)
+                            score += 1
+                            pop_effect(event.pos[0], event.pos[1])
+
+                    # Check if the player clicked on a bomb
+                    for bomb in bombs[:]:
+                        if not bomb["exploded"] and pygame.Rect(bomb["x"] - 30, bomb["y"] - 30, 60, 60).collidepoint(event.pos):
+                            handle_bomb_explosion(bomb)  # End game on bomb click
+
+            if game_over and event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return False  # Exit the game
+
+        if not game_over:
+            for balloon in balloons:
+                balloon["rect"].y -= balloon["speed"]
+                draw_balloon_string(balloon)
+                draw_balloon(balloon)
+
+        draw_bombs()  # Draw bombs
+
+        if elapsed_time >= time_limit and not game_over:
+            game_over = True
+
+        pygame.display.flip()
+        pygame.time.delay(30)
+
+
+# Welcome screen
+def display_welcome_screen():
+    screen.blit(welcome_background, (0, 0))  # Use welcome background
+    draw_text("Balloon Pop!", FONT_XLARGE, LIGHT_BLUE, WIDTH // 2, HEIGHT // 3, outline_color=BLACK, center=True)
+    
+    # Create the Start button
+    start_button = pygame.Rect(WIDTH // 3, HEIGHT // 2, WIDTH // 3, 60)
+    
+    # Define button colors
+    button_color = (255, 0, 0)  # Red color for the button
+    button_hover_color = (255, 69, 0)  # Lighter red color for hover effect
+    
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    
+    # Check if the mouse is hovering over the button
+    if start_button.collidepoint((mouse_x, mouse_y)):
+        pygame.draw.rect(screen, button_hover_color, start_button)
+    else:
+        pygame.draw.rect(screen, button_color, start_button)
+    
+    # Draw the "Start" text on the button
+    draw_text("Start", FONT_LARGE, WHITE, WIDTH // 2, HEIGHT // 2 + 25, center=True)
+    
+    pygame.display.flip()
+
+    return start_button
+
+# Main game loop
+def game_loop():
+    global balloons, score, game_over, bombs
+    score = 0
+    game_over = False
+
+    # Set up the game timer
+    start_ticks = pygame.time.get_ticks()
+    time_limit = 30000
+
+    # Generate balloons
+    for i in range(balloon_count):
+        size = random.randint(40, 70)
+        x = random.randint(0, WIDTH - size)
+        y = HEIGHT + 50 * i
+        color = random.choice(BALLOON_COLORS)
+        balloons.append({"rect": pygame.Rect(x, y, size, int(size * 1.2)), "color": color, "speed": random.randint(3, 7)})
+
+    # Generate bombs (somewhere random on the screen)
+    for _ in range(3):  # Let's add 3 bombs for now
+        bomb_x = random.randint(100, WIDTH - 100)
+        bomb_y = random.randint(100, HEIGHT - 100)
+        bombs.append({"x": bomb_x, "y": bomb_y, "exploded": False})
+
+    while True:
+        screen.blit(sky_image, (0, 0))
+        elapsed_time = pygame.time.get_ticks() - start_ticks
+        time_left = max(0, (time_limit - elapsed_time) // 1000)
+
+        draw_text(f"Time: {time_left}s", FONT_SMALL, WHITE, WIDTH - 200, 30, outline_color=BLACK)
+        draw_text(f"Score: {score}", FONT_SMALL, WHITE, 30, 30, outline_color=BLACK)
+
+        if game_over:
+            draw_text("Game Over!", FONT_LARGE, RED, WIDTH // 2, HEIGHT // 2 - 80, outline_color=BLACK, center=True)
+            draw_text(f"Final Score: {score}", FONT_LARGE, WHITE, WIDTH // 2, HEIGHT // 2, outline_color=BLACK, center=True)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False  # End the game
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if not game_over:
+                    for balloon in balloons[:]:
+                        if balloon["rect"].collidepoint(event.pos):
+                            balloons.remove(balloon)
+                            score += 1
+                            pop_effect(event.pos[0], event.pos[1])
+
+                    # Check if the player clicked on a bomb
+                    for bomb in bombs[:]:
+                        if not bomb["exploded"] and pygame.Rect(bomb["x"] - 30, bomb["y"] - 30, 60, 60).collidepoint(event.pos):
+                            handle_bomb_explosion(bomb)
+
+            if game_over and event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return False  # Exit the game
+
+        if not game_over:
+            for balloon in balloons:
+                balloon["rect"].y -= balloon["speed"]
+                draw_balloon_string(balloon)
+                draw_balloon(balloon)
+
+        draw_bombs()  # Draw bombs
+
+        if elapsed_time >= time_limit and not game_over:
+            game_over = True
+
+        pygame.display.flip()
+        pygame.time.delay(30)
+
+# Main function
+def main():
+    running = True
+
+    # Show the welcome screen
+    start_button = display_welcome_screen()
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if start_button.collidepoint(event.pos):
+                    game_loop()  # Start the game loop
+
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
